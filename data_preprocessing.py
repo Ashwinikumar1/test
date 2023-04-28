@@ -276,109 +276,123 @@ def table_generation_strategy(df):
     return output_df
 
 
-def input_table_annotations(input_df,table_name):
+import os
+import pandas as pd
+import numpy as np
+from typing import Tuple
+
+
+
+def input_table_annotations(input_df: pd.DataFrame, table_name: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list]:
+    """
+    This function generates annotations for each column in the input dataframe.
+
+    Args:
+        input_df: The input dataframe to be annotated.
+        table_name: Name of the table for which the annotations are being generated.
+
+    Returns:
+        A tuple of five objects:
+        - results: A pandas dataframe with column annotations.
+        - stratified_df_original: Stratified dataframe of the input dataframe.
+        - stratified_df: Filtered stratified dataframe of the input dataframe.
+        - output_tables_result: A list of pandas dataframes with annotations for each table subset.
+        - output_tables: A list of pandas dataframes with table subsets.
+    """
+    # Generate canonical data location and create directory if it does not exist
     canonical_data_location = os.path.join(canonical_save_location, file_name.split(".csv")[0])
     os.makedirs(canonical_data_location,exist_ok=True)
-    # input_df = df.copy()
         
-    # stratify input df
+    # Stratify input dataframe
     stratification_count = config.STRATIFY_COUNT
     sampler = new_stratified_sampler(stratification_count)
     sampler.fit(input_df)
-    # Generate a stratified random sample of the input dataframe
-    stratified_df_original = sampler.sample(input_df)
+    stratified_df_original = sampler.sample(input_df)  # Generate a stratified random sample of the input dataframe
     print(stratified_df_original.shape[1], input_df.shape[1], "original stratified df")
         
-        
-
-    # null data removal from input df
+    # Remove null data from input dataframe
     null_removed_df = get_null_removed_data(input_df)
         
-    # remove null columns from stratified df for doduo
+    # Remove null columns from stratified dataframe for doduo
     stratified_df = stratified_df_original.loc[:,null_removed_df.columns.tolist()]
     print(stratified_df.shape[1], null_removed_df.shape[1], "filtered stratified df")
         
-    # call permutation strategy function to generate table subsets
+    # Generate table subsets
     output_tables = table_generation_strategy(stratified_df)
 
-
+    # Filter output tables
     output_tables = [x for x in output_tables if x.shape[1]<=20]
 
+    # Generate annotations for each table subset
     output_tables_result = [columns_annotations(x,table_name) for x in output_tables]
 
+    # Combine annotations of all table subsets into one dataframe
     output_tables_result_combined = pd.concat(output_tables_result, axis=0)
     output_tables_result_combined.reset_index(drop=True, inplace=True)
 
-
-    # create final results
-    # taking mode of predictions for the column header and mean of condidence probablities
+    # Generate final column annotations by taking mode of predictions for the column header and mean of confidence probabilities
     results = output_tables_result_combined.groupby("column_header", as_index=True).agg({"Model_Prediction" : mode, "Probability_of_majority_class": mean})
     results["column_header"] = results.index
     results.reset_index(drop=True, inplace=True)
-    #results["Confidence"] = results["Probability_of_majority_class"].apply(lambda x : "Confident" if x >= 0.95 else "Less Confident" )
 
-    # adding removed columns data which are empty and removed initally
+    # Add columns that were removed and are now empty
     missed_columns = set(input_df.columns).difference(set(results["column_header"]))
     for x in missed_columns:
         results = results.append({"column_header" : x , "Model_Prediction" : "Miss" , "Probability_of_majority_class" : np.nan}, ignore_index=True)
 
-
-    # rearranging columns
+    # Rearrange columns
     results = results[["column_header","Model_Prediction","Probability_of_majority_class"]]
-    # rearranging rows
+
+    # Rearrange rows
     results['col_cat'] = pd.Categorical(
         results['column_header'], 
         categories=input_df.columns.tolist(), 
         ordered=True
     )
     results = results.sort_values('col_cat').reset_index(drop=True).drop(["col_cat"], axis=1)
-
     # add filtering logic
-
     # add canonical flags based on conditions
-    # case 1 :  add miss model predictions for canonical flag
-    results["canonical_flag"] = results["Model_Prediction"].apply(lambda x : "Missed" if x == "Miss" else "Confident")
 
+    # case 1: add miss model predictions for canonical flag
+    results["canonical_flag"] = results["Model_Prediction"].apply(lambda x: "Missed" if x == "Miss" else "Confident")
 
-    # case 2 : predictions with class having low precisions, most likely to generate false positives
+    # case 2: predictions with class having low precisions, most likely to generate false positives
     low_precision_label_index = results["Model_Prediction"].isin(config.LOW_PRECISON_CLASSES)
     results.loc[low_precision_label_index[low_precision_label_index].index.values, "canonical_flag"] = "Low Precision Class, High False Positive Probability"
 
-    # case 3 : predictions with less confidence
+    # case 3: predictions with less confidence
     confidence_threshold = 0.95
     low_prob_index = results["Probability_of_majority_class"] < confidence_threshold
     results.loc[low_prob_index[low_prob_index].index.values, "canonical_flag"] = "Not Confident"
 
-
-    # case 4 : overlapping resources currently : 'condition', 'organization', 'patient', 'practitioner', 'procedure'
+    # case 4: overlapping resources currently: 'condition', 'organization', 'patient', 'practitioner', 'procedure'
     overlapping_resources = ['condition', 'organization', 'patient', 'practitioner', 'procedure']
     overlap_indice = results["Model_Prediction"].str.split('.').str[0].isin(overlapping_resources)
     results.loc[overlap_indice[overlap_indice].index.values, "canonical_flag"] = "Overlapping Resources"
 
-
     # rename column header
     results["column_header"] = results['column_header'].str.lower()
 
-    results.rename(columns={"column_header" : "Column_Name"},inplace=True)
-    return results,stratified_df_original,stratified_df ,output_tables_result, output_tables
+    results.rename(columns={"column_header": "Column_Name"}, inplace=True)
+
+    return results, stratified_df_original, stratified_df, output_tables_result, output_tables
 
 
+
+import os
+import shutil
+import pandas as pd
+from data_transformer import data_transformer_prediction
 
 
 def data_transformer_list_parser(raw_data_directory):
     
-    
     global doduo_embeddings_list 
     doduo_embeddings_list = list()
-
-     
-    
     
     # location for storing intermediate outputs from data transformer
     intermediate_data_location = "intermediate_output"
     os.makedirs(intermediate_data_location, exist_ok=True)
-
-
 
     canonical_save_location  = os.path.join(intermediate_data_location,"canonical_input_data")
 
@@ -387,26 +401,38 @@ def data_transformer_list_parser(raw_data_directory):
 
     os.makedirs(canonical_save_location,exist_ok=True)
 
-    # intiate data transformer class
+    # initiate data transformer class
     data_transformer = data_transformer_prediction()
     raw_data_file_list = [x for x in os.listdir(raw_data_directory) if x.endswith(".csv")]
 
     for file_name in raw_data_file_list:
         table_name = file_name.split(".csv")[0]
-        input_df= pd.read_csv(os.path.join(raw_data_directory, file_name))
+        input_df = pd.read_csv(os.path.join(raw_data_directory, file_name))
         canonical_data_location = os.path.join(canonical_save_location, file_name.split(".csv")[0])
-        os.makedirs(canonical_data_location,exist_ok=True)
+        os.makedirs(canonical_data_location, exist_ok=True)
+
         # data transformer output
-        output = data_transformer.input_table_annotations(input_df,table_name)
+        output = data_transformer.input_table_annotations(input_df, table_name)
+
         # store mapping 
         output[0].to_csv(os.path.join(canonical_data_location, "data_mapping.csv"), index=False)
+
         # store stratified data
         output[1].to_csv(os.path.join(canonical_data_location, "stratified_data.csv"), index=False)
 
         # store pickle file for doduo embeddings on the data
-    
-    doduo_embeddings_df = pd.concat(doduo_embeddings_list,axis=0)
-    doduo_embeddings_df.reset_index(drop=True,inplace=True)
-    doduo_embeddings_df.to_pickle(os.path.join(canonical_save_location, "data_transformer_embeddings.pkl"))
-    del doduo_embeddings_list
+        doduo_embeddings_list.append(output[2])
 
+    doduo_embeddings_df = pd.concat(doduo_embeddings_list, axis=0)
+    doduo_embeddings_df.reset_index(drop=True, inplace=True)
+    doduo_embeddings_df.to_pickle(os.path.join(canonical_save_location, "data_transformer_embeddings.pkl"))
+    del doduo_embeddings_list 
+
+
+def main():
+    raw_data_directory = "input_data"
+    data_transformer_list_parser(raw_data_directory)
+
+
+if __name__ == "__main__":
+    main()
