@@ -1,30 +1,33 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import sys
+import os
+import shutil
 import pandas as pd
-import numpy as np
 sys.path.append('../')
-from  utils.utils import *
-from  data_loader.data_preprocessing import *
+from utils.utils import *
+from data_loader.data_preprocessing import *
 from configs.config import config
 import argparse
 
+# load the configuration
 config = config('/mnt/batch/tasks/shared/LS_root/mounts/clusters/optimus-aml-gpu/code/Users/ashwini_kumar/Optimus_Data_Transformer_pipeline/configs/config.yaml')
 
-
-# In[2]:
-
-
 def data_transformer_list_parser(raw_data_directory):
-    
+    """
+    Applies data transformation to the raw data and generates canonical input data.
+
+    Args:
+    raw_data_directory (str): path to the directory containing raw data files.
+
+    Returns:
+    None
+    """
     global doduo_embeddings_list 
     doduo_embeddings_list = list()
-    
-    # Define Ouput Location
+
+    # Define Output Location
     intermediate_data_location = config.OUTPUT_DIR
     # Create directory if it does not exist
     os.makedirs(intermediate_data_location, exist_ok=True)
@@ -44,7 +47,6 @@ def data_transformer_list_parser(raw_data_directory):
     for file_name in raw_data_file_list:
         table_name = file_name.split(".csv")[0]
         input_df = pd.read_csv(os.path.join(raw_data_directory, file_name))
-        # print (table_name,input_df)
         canonical_data_location = os.path.join(canonical_save_location, file_name.split(".csv")[0])
         os.makedirs(canonical_data_location, exist_ok=True)
 
@@ -65,12 +67,17 @@ def data_transformer_list_parser(raw_data_directory):
     doduo_embeddings_df.to_pickle(os.path.join(canonical_save_location, "data_transformer_embeddings.pkl"))
     del doduo_embeddings_list 
 
-
-# In[ ]:
-
-
 # Add the main function
 def main():
+    """
+    Parses command-line arguments and calls the data_transformer_list_parser function.
+
+    Args:
+    None
+
+    Returns:
+    None
+    """
     parser = argparse.ArgumentParser(description='Data Transformer')
     parser.add_argument('--raw_data_directory', type=str, help='Path to raw data directory', required=True)
     args = parser.parse_args()
@@ -80,4 +87,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
