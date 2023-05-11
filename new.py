@@ -1,156 +1,118 @@
-def create_new_cv_data(input_data_folder_path,cv_count,nsample=3000):
+import os
+import random
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
-
+def create_new_cv_data(input_data_folder_path, cv_count, nsample=3000):
+    """
+    Generates cross-validation data by randomly selecting rows from CSV/Parquet files in a directory, stratifying the 
+    data, and generating tables based on four strategies.
+    
+    Args:
+    - input_data_folder_path (str): path to directory containing CSV/Parquet files
+    - cv_count (int): number of cross-validation folds
+    - nsample (int): number of rows to sample from each file
+    
+    Returns:
+    - validation_list (list): a list of lists containing data counts for each fold and table generated
+    """
+    
     validation_list = []
-    for cv in tqdm.tqdm(cv_count):
+    
+    for cv in tqdm(range(cv_count)):
         
-        # print("Create data for the cv:", cv)
-        # logger.info(f"Create data for the cv: {cv}")
-        
-        # Create an empty column list
         col_list = []
-        
-        # Create an empty data list
         data_list_wide = []
         data_list_512 = []
         
-        # Run inner loop for 700 times, can be chosen individually
         for iteration in range(1):
             i = 0
             k = 0
             indices = 0
             df_iden = 0
             
-            # Logic to do for mimic
+            # Shuffle files in directory
             all_files = file_list_generator(input_data_folder_path)
             random.shuffle(all_files)
             
-            for file_ind,current_file in enumerate(all_files):
+            for file_ind, current_file in enumerate(all_files):
                 data_count = []
 
-                
-                file = current_file[0]
+                file_path = current_file[0]
                 table_name = current_file[1]
                 source_name = current_file[2]
                 file_name = current_file[3]
-                # print(file,table_name,source_name)
                 sample_count = nsample
-                nsample = nsample
-                
-                data_count.extend([file, table_name,source_name])
-                
-                # loading csv files
-                if file.endswith((".csv", ".parquet")):
-                    
-                    #filename = file.split("/")[-1]
-                    #table_name = filename[:-4].lower()
 
-                    #if table_name in table_dict.keys():
-                
-                    table_id_temp = table_name + "_cv" + str(cv) 
+                data_count.extend([file_path, table_name, source_name])
 
-
-                    if file.endswith('.csv'):
-                                                # Read the selected rows from the CSV file
-                        #print ("Big file processed in if :",file)
+                if file_path.endswith((".csv", ".parquet")):
+                    if file_path.endswith('.csv'):
+                        # Read data from file in chunks of 100000 rows
+                        chunks = pd.read_csv(file_path, chunksize=100000)
+                        dfs = []
+                        for chunk in chunks:
+                            # Sample nsample rows from each chunk
+                            df_sampled = chunk.sample(nsample, replace=True)
+                            dfs.append(df_sampled)
+                        df = pd.concat(dfs, ignore_index=True)
                         
-                            
-                        df_temp = pd.read_csv( file)    
-                        df = df_temp.sample(nsample,replace = True)
+                    elif file_path.endswith(".parquet"):
+                        # Read data from file in chunks of 100000 rows
+                        chunks = pd.read_parquet(file_path, chunksize=100000)
+                        dfs = []
+                        for chunk in chunks:
+                            # Sample nsample rows from each chunk
+                            if len(chunk) > nsample:
+                                df_sampled = chunk.sample(nsample, replace=False)
+                            else:
+                                df_sampled = chunk.sample(nsample, replace=True)
+                            dfs.append(df_sampled)
+                        df = pd.concat(dfs, ignore_index=True)
                         
-                        
-                    elif file.endswith(".parquet"):
-                        df = pd.read_parquet(file)
-                        df = df.sample(frac=1).reset_index(drop=True)
-                        if len(df) > nsample:
-                            
-                            df = df.sample(nsample, replace=False)
-                        else:
-                            df = df.sample(nsample, replace=True)
-                            
-                        
-                        print(len(df),"parquet_Data")
-                        
-                    
-                    
                     else:
-
-                        # Calculate the number of rows in the CSV file
-                        with open(os.path.join(input_data_folder_path, file)) as f:
+                        with open(file_path) as f:
                             num_rows = sum(1 for row in f)
 
-                        # Choose a random set of row indices
-                        if num_rows >= nsample:
-                            random_rows = np.random.choice(np.arange(1, num_rows), size=nsample, replace=False)
-                            random_rows[0]=0
-                        else:
-                            random_rows = np.random.choice(np.arange(1, num_rows), size=nsample, replace=True)
-                            random_rows[0]=0
+                        # Read data from file in chunks of 100000 rows
+                        chunks = pd.read_csv(file_path, chunksize=100000, header=0)
+                        dfs = []
+                        for i, chunk in enumerate(chunks):
+                            if i == 0:
+                                # Include the first row of the file in the first chunk
+                                chunk = pd.concat([pd.DataFrame([chunk.columns]), chunk], ignore_index=True)
+                            if i == len(chunks)-1:
+                                # Include the last row of the file in the last chunk
+                                chunk = pd.concat([chunk, pd.read_csv(file_path, skiprows=(i+1)*100000, nrows=1, header=None)], ignore_index=True)
+                            # Sample nsample rows from each chunk
+                            if num_rows >= (i+1)*100000:
+                                df_sampled = chunk.sample(nsample, replace=False)
+                            else:
+                                df_sampled = chunk.sample(nsample, replace=True)
+                            dfs.append(df_sampled)
+                        df = pd.concat(dfs, ignore_index=True)
 
-                        #skiprows=lambda x: x not in random_rows
 
-                        # Read the selected rows from the CSV file
-                        df = pd.read_csv(file, skiprows=lambda x: x not in random_rows, header=0)
-
-                
-                        
-            
-
-                    # reset dataframe index incase of duplicate roes
-                
+                    # Reset dataframe index incase of duplicate rows
                     df.reset_index(drop=True, inplace=True)
-                    #df = df.loc[:, df.columns.str.lower().isin(table_dict[table_name.lower()].keys())]  
-                    print("input_data_row_count", df.shape[0])
-                    data_count.append(df.shape[0])
-                   
-                    print("input_data", df.shape[1])
-                    data_count.append(df.shape[1])
-                    print (df.columns)
                     
+                    # Filter columns based on FHIR table mapping
                     df = df.loc[:,df.columns.str.lower().isin(fhir_table_mapping[fhir_table_mapping['table_name'] == file_name ]["column_name"].tolist())]
                     
-                    # print("mapped_data_count", df.shape[1])
-                    data_count.append(df.shape[1])
-                    #print ("After",df.shape)  
-                    
-                    print ("Shape of df is :",df.shape)
-                    
-                    # create stratified data
+                    # Stratify data
                     sampler = new_stratified_sampler(sample_count)
                     sampler.fit(df)
-                    # Generate a stratified random sample of the input dataframe
                     stratified_df_original = sampler.sample(df)
-                    print(stratified_df_original.shape[1], df.shape[1], "original stratified df")
 
-                    
-                    
-                    # null removed df
+                    # Get null-removed data
                     null_removed_df = get_null_removed_data(df)
-                    print("mull removed data", df.shape[1])
-                    data_count.append(df.shape[1])
-                    '''
-                    df_original_col_list = [x.lower() for x in df.columns]
-                    tabert_df["doduo_included"] = tabert_df["original_table_name"].apply(lambda x : 1 if x in df_original_col_list  else 0)
-                    data_count.append(tabert_df["doduo_included"].sum())
-                    tabert_df_list.append(tabert_df)
-                    '''
-                    
-                    
-                    # remove null columns from stratified df for doduo
+
+                    # Filter columns in stratified data based on null-removed data
                     stratified_df = stratified_df_original.loc[:,null_removed_df.columns.tolist()]
-                    
-                    
 
-                    
-                    data_count.append(stratified_df.shape[0])
-                    
-                    data_count.append(stratified_df.shape[1])
-                    
-
-
-                    # generate strategic tables based on four strategies :  output 40 tables
-
+                    # Generate tables based on four strategies
                     output_tables = table_generation_strategy(stratified_df)
-                    print("stratgeized_table_count", len(output_tables))
-                    data_count.append(len(output_tables))
-                    validation_list.append(data_count)
+                    
+                    # Update data count
+                    data_count.append(df.shape[0]) #
