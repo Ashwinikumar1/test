@@ -87,11 +87,3 @@ async def transform_data(raw_data_directory: str):
     del doduo_embeddings_list 
     # Return the status
     return {"status": "success", "message": f"Data transformation completed successfully. Output file path: {canonical_save_location}"}
-
-
-curl -X POST -H "Content-Type: application/json" -d '{"raw_data_directory": "/path/to/raw/data"}' http://localhost:8000/transform_data
-
-
-Install FastAPI: pip install fastapi
-
-Install uvicorn server: pip install uvicorn
