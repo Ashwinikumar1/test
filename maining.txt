@@ -1,0 +1,96 @@
+import subprocess
+import shutil
+import yaml
+import argparse
+import sys
+from fastapi import FastAPI
+
+from data_loader.data_preprocessing import *
+from configs.config import config
+
+
+app = FastAPI()
+
+# Define the command-line arguments
+parser = argparse.ArgumentParser(description='Optimus Training Pipeline')
+parser.add_argument('--input_dir', type=str, help='Path to the input data directory')
+parser.add_argument('--mapping_file', type=str, help='Path to the mapping file')
+args = parser.parse_args()
+
+# Load the configuration
+config_path = 'config.yaml'
+with open(config_path, 'r') as f:
+    config_dict = yaml.safe_load(f)
+
+# Update the input_dir and mapping_file_variable if provided as arguments
+if args.input_dir is not None:
+    config_dict['DATA_DIR']['INPUT_DIR'] = args.input_dir
+
+if args.mapping_file is not None:
+    config_dict['MAPPING_FILE'] =  args.mapping_file
+
+# Save the updated config dictionary to the file
+with open(config_path, 'w') as f:
+    yaml.dump(config_dict, f)
+
+# # load the configuration
+config = config('config.yaml')
+
+#print (config)
+# Check if the repository already exists
+if not os.path.exists(os.path.join(config.OUTPUT_DIR, config.TASK_ID)):
+    # Create the repository
+    os.makedirs(os.path.join(config.OUTPUT_DIR, config.TASK_ID))
+
+@app.post("/train-and-predict")
+async def train_and_predict(input_dir: str, mapping_file: str):
+    # Update the command-line arguments
+    args.input_dir = input_dir
+    args.mapping_file = mapping_file
+
+    # Preprocess the data
+    out = create_new_cv_data(config.INPUT_DIR, config.CV_LIST, nsample=config.NSAMPLE)
+
+    # Add the coltypes and num classes on the go in config class so it can be used anywhere
+    coltypes, num_classes = extract_class(out[0])
+    config.COLTYPES = coltypes
+    config.NUM_CLASSES = num_classes
+    print (" Number of classes for training are :", config.NUM_CLASSES)
+    print (" The classes are as follows :",config.COLTYPES)
+
+    # Load the text file
+    with open('./models/doduo/model_inputs.txt', 'r') as f:
+         lines = f.readlines()
+
+    # Loop over the lines in the file and update the variables as needed
+    for i, line in enumerate(lines):
+         if line.startswith('sato_coltypes'):
+              lines[i] = f'sato_coltypes: {coltypes}\n'
+         elif line.startswith('num_classes'):
+              lines[i] = f'num_classes: {num_classes}\n'
+
+    # Save the updated text file
+    with open('./models/doduo/model_inputs.txt', 'w') as f:
+         f.writelines(lines)
+
+    # Run the command to train the model
+    print ("Running Training")
+    train_script_path = 'models/doduo/train_multi.py'
+    subprocess.run(["python", train_script_path])
+    print ("Train Completed")
+
+    # Run the command to make predictions using the trained model
+    print ("Running Prediction")
+    predict_script_path = 'models/doduo/predict_multi.py'
+    subprocess.run(["python", predict_script_path])
+    print ("Predictions Completed")
+    
+    return {"message": "Training and predictions completed successfully"}
+
+
+
+uvicorn app:app --reload
+
+uvicorn app:app --reload --port 8888
+
+curl -X POST http://localhost:8000/train -d '{"input_dir": "/path/to/input_dir", "mapping_file": "/path/to/mapping_file"}'
