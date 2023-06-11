@@ -89,3 +89,50 @@ get_ipython().run_line_magic('run', 'models/doduo/train_multi.py')
 
 get_ipython().run_line_magic('run', 'models/doduo/predict_multi.py')
 
+import subprocess
+
+# Define the command to run the script
+command = "python models/doduo/predict_multi.py"
+
+# Run the command
+subprocess.run(command, shell=True)
+
+
+import pickle
+
+# ... Existing code ...
+
+# Pickle the NMF model
+with open('/content/drive/MyDrive/topic_modelling/results/nmf_model.pkl', 'wb') as file:
+    pickle.dump(nmf, file)
+
+# Pickle the TF-IDF vectorizer
+with open('/content/drive/MyDrive/topic_modelling/results/tfidf_vectorizer.pkl', 'wb') as file:
+    pickle.dump(tfidf_vectorizer, file)
+
+
+import pickle
+
+# Load the NMF model
+with open('/content/drive/MyDrive/topic_modelling/results/nmf_model.pkl', 'rb') as file:
+    nmf = pickle.load(file)
+
+# Load the TF-IDF vectorizer
+with open('/content/drive/MyDrive/topic_modelling/results/tfidf_vectorizer.pkl', 'rb') as file:
+    tfidf_vectorizer = pickle.load(file)
+
+# Example usage on new text data
+new_text = "This is a new document to classify."
+
+# Transform the new text using the TF-IDF vectorizer
+new_text_tfidf = tfidf_vectorizer.transform([new_text])
+
+# Get the topic distribution for the new text
+new_text_topic_distribution = nmf.transform(new_text_tfidf)
+
+# Find the top topic for the new text
+new_text_top_topic = np.argmax(new_text_topic_distribution)
+
+# Print the top topic number and corresponding words
+print("Top Topic Number:", new_text_top_topic)
+print("Top Topic Words:", ' '.join(get_top_words(nmf, tfidf_vectorizer.get_feature_names(), n_top_words=10)[new_text_top_topic]))
